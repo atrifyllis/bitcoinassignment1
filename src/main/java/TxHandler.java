@@ -1,3 +1,5 @@
+import java.util.Optional;
+
 public class TxHandler {
 
     private final UTXOPool utxoPool;
@@ -22,7 +24,39 @@ public class TxHandler {
      * values; and false otherwise.
      */
     public boolean isValidTx(Transaction tx) {
-        // IMPLEMENT THIS
+        // 1
+        Optional<UTXO> unmatchedUtxo = tx.getInputs().stream()
+                .map(input -> new UTXO(input.prevTxHash, input.outputIndex))
+                .filter(utxo -> !this.utxoPool.contains(utxo))
+                .findAny();
+
+        if (unmatchedUtxo.isPresent()) return false;
+
+        // 2
+        boolean allSignaturesValid = tx.getInputs().stream()
+                .allMatch(input -> Crypto.verifySignature(tx.getOutput(input.outputIndex).address, input.prevTxHash, input.signature));
+        if (!allSignaturesValid) return false;
+
+        // 3
+        long distinctUtxosClaimed = tx.getInputs().stream()
+                .map(input -> new UTXO(input.prevTxHash, input.outputIndex))
+                .distinct()
+                .count();
+        if (distinctUtxosClaimed != tx.getInputs().size()) return false;
+
+        // 4
+        long negativeOutputValues = tx.getOutputs().stream().map(output -> output.value).filter(value -> value < 0).count();
+        if (negativeOutputValues > 0) return false;
+
+        // 5
+        double sumOfInputs = tx.getInputs().stream()
+                .map(input -> this.utxoPool.getTxOutput(new UTXO(input.prevTxHash, input.outputIndex)).value)
+                .mapToDouble(Double::doubleValue)
+                .sum();
+        double sumfOfOutputs = tx.getOutputs().stream().map(output -> output.value).mapToDouble(Double::doubleValue).sum();
+        if(sumOfInputs < sumfOfOutputs) return false;
+
+        return true;
     }
 
     /**
