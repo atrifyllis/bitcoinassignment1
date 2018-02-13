@@ -1,3 +1,6 @@
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 public class TxHandler {
@@ -31,30 +34,30 @@ public class TxHandler {
                 .findAny();
 
         if (unmatchedUtxo.isPresent()) return false;
-
         // 2
+        // the previous output of an input should be found in the pool. if not the transaction is invalid
         boolean allSignaturesValid = tx.getInputs().stream()
-                .allMatch(input -> Crypto.verifySignature(tx.getOutput(input.outputIndex).address, input.prevTxHash, input.signature));
+                .allMatch(input -> {
+                    Transaction.Output output = this.utxoPool.getTxOutput(new UTXO(input.prevTxHash, input.outputIndex));
+                    return output != null ? Crypto.verifySignature(output.address, tx.getRawDataToSign(tx.getInputs().indexOf(input)), input.signature) : false;
+                });
         if (!allSignaturesValid) return false;
-
         // 3
         long distinctUtxosClaimed = tx.getInputs().stream()
                 .map(input -> new UTXO(input.prevTxHash, input.outputIndex))
                 .distinct()
                 .count();
         if (distinctUtxosClaimed != tx.getInputs().size()) return false;
-
         // 4
         long negativeOutputValues = tx.getOutputs().stream().map(output -> output.value).filter(value -> value < 0).count();
         if (negativeOutputValues > 0) return false;
-
         // 5
         double sumOfInputs = tx.getInputs().stream()
                 .map(input -> this.utxoPool.getTxOutput(new UTXO(input.prevTxHash, input.outputIndex)).value)
                 .mapToDouble(Double::doubleValue)
                 .sum();
         double sumfOfOutputs = tx.getOutputs().stream().map(output -> output.value).mapToDouble(Double::doubleValue).sum();
-        if(sumOfInputs < sumfOfOutputs) return false;
+        if (sumOfInputs < sumfOfOutputs) return false;
 
         return true;
     }
@@ -66,6 +69,21 @@ public class TxHandler {
      */
     public Transaction[] handleTxs(Transaction[] possibleTxs) {
         // IMPLEMENT THIS
+
+        List<Transaction> validTxs = new ArrayList<>();
+
+        Arrays.stream(possibleTxs)
+                .forEach(tx -> {
+                    if (isValidTx(tx)) {
+                        validTxs.add(tx);
+                        tx.getInputs().stream()
+                                .forEach(input -> this.utxoPool.removeUTXO(new UTXO(input.prevTxHash, input.outputIndex)));
+                        tx.getOutputs().stream()
+                                .forEach(output -> this.utxoPool.addUTXO(new UTXO(tx.getHash(), tx.getOutputs().indexOf(output)), output));
+                    }
+                });
+
+        return validTxs.toArray(new Transaction[validTxs.size()]);
     }
 
 }
